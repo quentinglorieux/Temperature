@@ -1,0 +1,13 @@
+[Unit]
+Description=SwitchBot Logger
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/temperature
+ExecStart=/opt/temperature/.venv/bin/python /opt/temperature/logger_influx.py 310401DD-04E3-43EA-8A1D-68014C8158BC --token YOUR_TOKEN
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
