@@ -5,7 +5,7 @@
   [Service]
   Type=simple
   WorkingDirectory=/home/quantum_optics_rpi/Projects/Temperature
-  ExecStart=/home/quantum_optics_rpi/Projects/Temperature/.venv/bin/python /home/quantum_optics_rpi/Projects/Temperature/logger_influx.py 310401DD-04E3-43EA-8A1D-68014C8158BC --token changeme-token
+  ExecStart=/home/quantum_optics_rpi/Projects/Temperature/.venv/bin/python /home/quantum_optics_rpi/Projects/Temperature/logger_influx_scan.py --token changeme-token
   Restart=always
   RestartSec=5
 

@@ -78,9 +78,9 @@ async def run(
         while True:
             samples = await scan_once(scan_duration)
             if samples:
-                print(f"[{_now().isoformat()}] found {len(samples)} sensor(s)")
+                print(f"[{_now().isoformat()}] found {len(samples)} sensor(s)", flush=True)
             else:
-                print(f"[{_now().isoformat()}] no sensors found")
+                print(f"[{_now().isoformat()}] no sensors found", flush=True)
             for mac, data in samples.items():
                 name = name_map.get(mac.lower(), "")
                 point = (
@@ -94,7 +94,7 @@ async def run(
                 if "batt" in data:
                     point.field("batt", int(data["batt"]))
                 write_api.write(bucket=bucket, org=org, record=point)
-                print(f"[{_now().isoformat()}] wrote {mac}")
+                print(f"[{_now().isoformat()}] wrote {mac}", flush=True)
             await asyncio.sleep(interval)
 
 
