@@ -100,7 +100,10 @@ async def run(
                 if "batt" in data:
                     point.field("batt", int(data["batt"]))
                 write_api.write(bucket=bucket, org=org, record=point)
-                print(f"[{_now().isoformat()}] wrote {mac}", flush=True)
+                print(
+                    f"[{_now().isoformat()}] wrote {mac} tempc={data['tempc']} hum={data['hum']}",
+                    flush=True,
+                )
             await asyncio.sleep(interval)
 
 
