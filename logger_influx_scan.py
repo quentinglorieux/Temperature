@@ -1,22 +1,49 @@
 import argparse
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 from influxdb_client import InfluxDBClient, Point, WriteOptions
+from bleak import BleakScanner
 
 from scan_switchbot import _decode_with_theengs, _looks_like_switchbot, _make_manufacturer_hex, _make_service_data
-from bleak import BleakScanner
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def scan_once(duration: float) -> Dict[str, dict]:
-    latest: Dict[str, dict] = {}
+def _load_name_map(path: str) -> Dict[str, str]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = json.loads(p.read_text())
+    return {k.lower(): v for k, v in data.items()}
+
+
+def _mac_from_manufacturer_hex(manufacturer_hex: Optional[str]) -> Optional[str]:
+    if not manufacturer_hex:
+        return None
+    # Manufacturer hex includes 2-byte company ID + 6-byte MAC at the start.
+    if len(manufacturer_hex) < 16:
+        return None
+    mac_hex = manufacturer_hex[4:16]
+    return ":".join(mac_hex[i : i + 2].upper() for i in range(0, 12, 2))
+
+
+async def run(
+    interval: float,
+    stale_after: float,
+    url: str,
+    token: str,
+    org: str,
+    bucket: str,
+    name_map: Dict[str, str],
+) -> None:
+    latest: Dict[str, Tuple[dict, float]] = {}
 
     def cb(device, adv):
         name = device.name or ""
@@ -42,46 +69,25 @@ async def scan_once(duration: float) -> Dict[str, dict]:
         decoded = _decode_with_theengs(payload)
         if not decoded:
             return
-        mac = decoded.get("mac")
+        mac = decoded.get("mac") or _mac_from_manufacturer_hex(manufacturer_hex)
         if not mac:
             return
         if "tempc" not in decoded or "hum" not in decoded:
             return
-        latest[mac] = decoded
+        latest[mac] = (decoded, time.time())
 
-    scanner = BleakScanner(cb)
-    await scanner.start()
-    await asyncio.sleep(duration)
-    await scanner.stop()
-    return latest
-
-
-def _load_name_map(path: str) -> Dict[str, str]:
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = json.loads(p.read_text())
-    return {k.lower(): v for k, v in data.items()}
-
-
-async def run(
-    scan_duration: float,
-    interval: float,
-    url: str,
-    token: str,
-    org: str,
-    bucket: str,
-    name_map: Dict[str, str],
-) -> None:
     with InfluxDBClient(url=url, token=token, org=org) as client:
         write_api = client.write_api(write_options=WriteOptions(batch_size=1))
+        scanner = BleakScanner(cb)
+        await scanner.start()
         while True:
-            samples = await scan_once(scan_duration)
-            if samples:
-                print(f"[{_now().isoformat()}] found {len(samples)} sensor(s)", flush=True)
+            now = time.time()
+            active = {m: d for m, (d, ts) in latest.items() if (now - ts) <= stale_after}
+            if active:
+                print(f"[{_now().isoformat()}] active {len(active)} sensor(s)", flush=True)
             else:
                 print(f"[{_now().isoformat()}] no sensors found", flush=True)
-            for mac, data in samples.items():
+            for mac, data in active.items():
                 name = name_map.get(mac.lower(), "")
                 point = (
                     Point("switchbot_meter")
@@ -100,8 +106,8 @@ async def run(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scan all SwitchBot meters and log to InfluxDB.")
-    parser.add_argument("--scan", type=float, default=10.0, help="Seconds per BLE scan")
-    parser.add_argument("--interval", type=float, default=30.0, help="Seconds between scans")
+    parser.add_argument("--interval", type=float, default=30.0, help="Seconds between writes")
+    parser.add_argument("--stale", type=float, default=120.0, help="Seconds to keep last seen sensor active")
     parser.add_argument("--names", default="sensors.json", help="MAC->name JSON map file")
     parser.add_argument("--url", default="http://localhost:8086", help="InfluxDB URL")
     parser.add_argument("--token", required=True, help="InfluxDB token")
@@ -110,7 +116,7 @@ def main() -> None:
     args = parser.parse_args()
 
     name_map = _load_name_map(args.names)
-    asyncio.run(run(args.scan, args.interval, args.url, args.token, args.org, args.bucket, name_map))
+    asyncio.run(run(args.interval, args.stale, args.url, args.token, args.org, args.bucket, name_map))
 
 
 if __name__ == "__main__":
